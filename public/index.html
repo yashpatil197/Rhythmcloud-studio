@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The RhythmCloud Studio</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+
+    <div class="main-layout">
+        <div class="sidebar">
+            <div class="logo">RhythmCloud ☁️</div>
+            <ul class="nav">
+                <li class="active" onclick="loadSongs()"><i class="fas fa-home"></i> Home</li>
+                <li onclick="filterLikes()"><i class="fas fa-heart"></i> My Likes</li>
+            </ul>
+            
+            <div class="user-section" id="auth-container">
+                <a href="/auth/google" class="btn-login">Login with Google</a>
+            </div>
+        </div>
+
+        <div class="content">
+            <header>
+                <h2>Trending Edits</h2>
+            </header>
+            <div class="song-grid" id="song-list">
+                <p style="color:#777; padding:20px;">Loading Studio...</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="player-bar">
+        <div class="track-info">
+            <h4 id="player-title">Select a song</h4>
+            <p id="player-artist">--</p>
+        </div>
+        <div class="controls">
+            <button onclick="togglePlay()" class="play-btn"><i class="fas fa-play" id="play-icon"></i></button>
+        </div>
+        <div class="actions">
+            <button id="like-btn" onclick="toggleLike()"><i class="far fa-heart"></i></button>
+            <a id="download-btn" class="disabled"><i class="fas fa-download"></i></a>
+        </div>
+        <audio id="audio-source"></audio>
+    </div>
+
+    <script>
+        let currentUser = null;
+        let currentSongId = null;
+        let allSongs = [];
+        const audio = document.getElementById('audio-source');
+
+        async function init() {
+            await checkAuth();
+            loadSongs();
+        }
+
+        async function checkAuth() {
+            try {
+                const res = await fetch('/api/current_user');
+                const userText = await res.text();
+                if (userText) {
+                    currentUser = JSON.parse(userText);
+                    renderUserUI();
+                }
+            } catch(e) { console.log("Not logged in"); }
+        }
+
+        function renderUserUI() {
+            document.getElementById('auth-container').innerHTML = `
+                <div class="profile">
+                    <img src="${currentUser.photo || 'https://via.placeholder.com/40'}" class="avatar">
+                    <div class="user-info">
+                        <span>${currentUser.displayName}</span>
+                        <a href="/api/logout" class="logout-link">Logout</a>
+                    </div>
+                </div>
+            `;
+            document.getElementById('download-btn').classList.remove('disabled');
+
+            // ADMIN CHECK
+            if (currentUser.email === "yashpatil3495@gmail.com") {
+                showAdminPanel();
+            }
+        }
+
+        function showAdminPanel() {
+            const sidebar = document.querySelector('.sidebar');
+            const adminDiv = document.createElement('div');
+            adminDiv.className = 'admin-box';
+            adminDiv.innerHTML = `
+                <h4>👑 Admin Studio</h4>
+                <form action="/api/admin/upload" method="POST" enctype="multipart/form-data">
+                    <input type="text" name="title" placeholder="Song Title" required>
+                    <input type="file" name="song" accept="audio/*" required>
+                    <button type="submit">Upload</button>
+                </form>
+            `;
+            sidebar.appendChild(adminDiv);
+        }
+
+        async function loadSongs() {
+            const res = await fetch('/api/songs');
+            allSongs = await res.json();
+            renderSongs(allSongs);
+        }
+
+        function renderSongs(songs) {
+            const container = document.getElementById('song-list');
+            if(songs.length === 0) {
+                container.innerHTML = '<p>No songs found.</p>';
+                return;
+            }
+            container.innerHTML = songs.map(song => `
+                <div class="card" onclick="playSong('${song.url}', '${song.title}', '${song.artist}', '${song._id}')">
+                    <img src="${song.cover}" alt="cover">
+                    <h3>${song.title}</h3>
+                    <p>${song.artist}</p>
+                </div>
+            `).join('');
+        }
+
+        function filterLikes() {
+            if(!currentUser) return alert("Please Login first!");
+            const liked = allSongs.filter(s => currentUser.likedSongs.includes(s._id));
+            renderSongs(liked);
+        }
+
+        function playSong(url, title, artist, id) {
+            audio.src = url;
+            document.getElementById('player-title').innerText = title;
+            document.getElementById('player-artist').innerText = artist;
+            currentSongId = id;
+            
+            const dlBtn = document.getElementById('download-btn');
+            if (currentUser) {
+                dlBtn.href = url;
+                dlBtn.setAttribute('download', title);
+            }
+
+            updateLikeIcon();
+            audio.play();
+            document.getElementById('play-icon').className = "fas fa-pause";
+        }
+
+        function togglePlay() {
+            if (audio.paused) {
+                audio.play();
+                document.getElementById('play-icon').className = "fas fa-pause";
+            } else {
+                audio.pause();
+                document.getElementById('play-icon').className = "fas fa-play";
+            }
+        }
+
+        async function toggleLike() {
+            if (!currentUser) return alert("Login to like songs!");
+            await fetch(`/api/songs/${currentSongId}/like`, { method: 'POST' });
+            
+            // Update local state
+            if(currentUser.likedSongs.includes(currentSongId)) {
+                currentUser.likedSongs = currentUser.likedSongs.filter(id => id !== currentSongId);
+            } else {
+                currentUser.likedSongs.push(currentSongId);
+            }
+            updateLikeIcon();
+        }
+
+        function updateLikeIcon() {
+            const icon = document.querySelector('#like-btn i');
+            if (currentUser && currentUser.likedSongs.includes(currentSongId)) {
+                icon.className = "fas fa-heart";
+                icon.style.color = "#1db954";
+            } else {
+                icon.className = "far fa-heart";
+                icon.style.color = "white";
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
